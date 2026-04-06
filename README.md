@@ -79,29 +79,59 @@ Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive 
 | **Cargo Loss (CL)** | `transit_duration`, `vessel_age`, `pilot_exp` | **Highest in Oryn Delta (Severity):** The 240 AU distance and 60-month duration maximise the probability of a total loss, requiring peak risk margins to cover extreme uncertainty. |
 
 To implement this operational design in our model, we established a central sys_params matrix to map environmental constraints directly into the model: 
-```r
-# Parameters retained from Online Encyclopedia:
-# route_risk : Helionis=3, Bayesia=2, Oryn=4
-# debris_density : consistent with route_risk ordering
-# solar_radiation: Helionis=0.50; Bayesia=0.70; Oryn=0.30
-
-sys_params <- data.frame( cq_system = cq_systems, proxy_sys = unname(sys_proxy),
-# WC: gravity
-gravity      = c(1.125, 1.300, 1.113),
+# Parameters retained from Online Encyclopedia (justified below):
+  #   route_risk     : Helionis=3 (erratic debris, micro-collisions),
+  #                     Bayesia=2  (heavily mapped, stable orbits),
+  #                     Oryn=4     (asymmetric ring, orbital shear)
+  #   debris_density : consistent with route_risk ordering
+  #   solar_radiation: Helionis G2V low flare=0.50; Bayesia binary EM spikes=0.70;
+  #                     Oryn M3V dim/mild=0.30
+  #   supply_chain   : Bayesia "well-established orbital stations"=0.75;
+  #                     Oryn "infrastructure rapidly evolving"=0.60;
+  #                     training medians all ~0.495, so CQ above-median is reasonable
+  #   gravity (Bayesia=1.300): directly stated "high-gravity" in encyclopedia
+  #   gravity (Helionis=1.125, Oryn=1.113): assumed; flagged below
+  # ======
+  sys_params <- data.frame(
+    cq_system = cq_systems,
+    proxy_sys = unname(sys_proxy),
     
- # WC: psych_stress: training-data median per proxy system
- psych_stress = as.numeric(get_wc_param("psych_stress_med")),
+    # WC: gravity
+    # Bayesia=1.300 encyclopedia-stated ("high-gravity with thin magnetosphere")
+    # Helionis=1.125. Oryn=1.113:assumed (no explicit encyclopedia figure); flagged
+    gravity      = c(1.125, 1.300, 1.113),
     
-# Cargo: route_risk 
-route_risk_n = c(3L, 2L, 4L),   
-route_risk_c = c("3","2","4"),   
+    # WC: psych_stress: training-data median per proxy system (replaces assumed 3,4,4)
+    psych_stress = as.numeric(get_wc_param("psych_stress_med")),
     
- # Cargo: debris_density and solar_radiation
-debris_density  = c(0.60, 0.30, 0.70),
-solar_radiation = c(0.50, 0.70, 0.30),
+    # Cargo: route_risk: encyclopedia-supported (see note above)
+    route_risk_n = c(3L, 2L, 4L),    # numeric for cargo_nb
+    route_risk_c = c("3","2","4"),   # character (--> factor) for cargo_glm
     
-# ... [Additional BI and Cargo Parameters] ...
- stringsAsFactors = FALSE
+    # Cargo: debris_density and solar_radiation: encyclopedia-supported
+    debris_density  = c(0.60, 0.30, 0.70),
+    solar_radiation = c(0.50, 0.70, 0.30),
+    
+    # Cargo: pilot_exp: training-data median; no system-level breakdown available
+    pilot_exp     = as.numeric(pilot_exp_vals[cq_systems]),
+    
+    # Cargo: vessel_age: training-data median scaled by inventory-derived system maturity
+    vessel_age_cq = as.numeric(vessel_age_vals[cq_systems]),
+    
+    # BI: supply_chain: encyclopedia-supported (see note above)
+    supply_chain  = c(0.80, 0.75, 0.60),
+    
+    # BI: maint_freq: training-data median per proxy system (replaces assumed 4,3,2)
+    maint_freq_bi = as.numeric(get_bi_param("maint_freq_med")),
+    
+    # BI: prod_load: training-data median per proxy system (replaces assumed 0.80,0.75,0.85)
+    prod_load     = as.numeric(get_bi_param("prod_load_med")),
+    
+    # BI: energy_backup: training-data mode per proxy system (replaces assumed all=4)
+    #     Helionis=5, Epsilon(Bayesia)=2, Zeta(Oryn)=2
+    energy_backup = as.numeric(get_bi_param("energy_bk_mode")),
+    
+    stringsAsFactors = FALSE
   )
 
 # Pricing & Commerical Strategy 
