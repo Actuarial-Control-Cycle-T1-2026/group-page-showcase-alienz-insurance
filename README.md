@@ -79,7 +79,11 @@ Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive 
 | **Cargo Loss (CL)** | `transit_duration`, `vessel_age`, `pilot_exp` | **Highest in Oryn Delta (Severity):** The 240 AU distance and 60-month duration maximise the probability of a total loss, requiring peak risk margins to cover extreme uncertainty. |
 
 To implement this operational design in our model, we established a central sys_params matrix to map environmental constraints directly into the model: 
-# Parameters retained from Online Encyclopedia (justified below):
+```r
+  # ======
+  # STEP 3: Build sys_params
+  #
+  # Parameters retained from Online Encyclopedia (justified below):
   #   route_risk     : Helionis=3 (erratic debris, micro-collisions),
   #                     Bayesia=2  (heavily mapped, stable orbits),
   #                     Oryn=4     (asymmetric ring, orbital shear)
@@ -133,6 +137,7 @@ To implement this operational design in our model, we established a central sys_
     
     stringsAsFactors = FALSE
   )
+```
 
 # Pricing & Commerical Strategy 
 The pricing framework is designed to capture the baseline expected 10-year present value cost while aggressively funding the liquid capital reserves required to survive extreme tail-risk volatility. 
