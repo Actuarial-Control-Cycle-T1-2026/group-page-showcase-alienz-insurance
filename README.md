@@ -79,12 +79,10 @@ Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive 
 | **Cargo Loss (CL)** | `transit_duration`, `vessel_age`, `pilot_exp` | **Highest in Oryn Delta (Severity):** The 240 AU distance and 60-month duration maximise the probability of a total loss, requiring peak risk margins to cover extreme uncertainty. |
 
 To implement this operational design in our model, we established a central sys_params matrix to map environmental constraints directly into the model: 
-# ======
   # Parameters retained from Online Encyclopedia:
   #   route_risk     : Helionis=3, Bayesia=2, Oryn=4
   #   debris_density : consistent with route_risk ordering
   #   solar_radiation: Helionis=0.50; Bayesia=0.70; Oryn=0.30
-  # ======
   sys_params <- data.frame(
     cq_system = cq_systems,
     proxy_sys = unname(sys_proxy),
