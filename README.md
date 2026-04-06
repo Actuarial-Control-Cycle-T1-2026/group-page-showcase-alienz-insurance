@@ -66,7 +66,115 @@ Moving onto the data limitations, a primary limitation was the historical datase
 - Limited granularity in human capital risk variables
 
 # Product Design
+To effectively managage the vastly different risk profiles across Cosmic Quarry's operations, the portfolio is bifurcated into two layers: Tier 1 (Attritional) and Tier 2 (Catastrophic)
+- **Tier 1 (Attritional Risk Layer)**: Covers Workers' Compensation (WC) and Equipment Failure (EF), tailored for the high-frequency, low-severity claims characteristic of the Helionis Cluster's high-traffic and high-debris environment.
+- **Tier 2 (Catastrophic Risk Layer)**: Covers Business Interruption (BI) and Cargo Loss (CL). This layer focuses on systemic, correlated and totl-loss threats in the Bayesia System and Oryn Delta, where extreme isolation demands unique parametric and agreed-value structures.
 
+Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive operational variables, allowing the rating engine to automatically adjust to the relaties of each system. 
+| Product | Primary Rating Variables | System Weighting & Actuarial Justification |
+| :--- | :--- | :--- |
+| **Workers' Compensation (WC)** | `gravity_level`, `safety_training_index` | **Highest in Helionis (Frequency):** High gravity environments directly inflate the frequency and severity of musculoskeletal claims, demanding heavy premium loading. |
+| **Equipment Failure (EF)** | `usage_intensity`, `solar_radiation` | **Highest in Bayesia (Tail Risk):** Radiation spikes cause instantaneous electronic degradation, shifting EF from a predictable wear-and-tear risk to a volatile, heavy-tailed exposure. |
+| **Business Interruption (BI)** | `energy_backup_score`, `supply_chain_index` | **Highest in Bayesia/Oryn (Correlation):** Poor backup scores heavily penalise premiums, as a single solar event can trigger simultaneous, system-wide communication and production stoppages. |
+| **Cargo Loss (CL)** | `transit_duration`, `vessel_age`, `pilot_exp` | **Highest in Oryn Delta (Severity):** The 240 AU distance and 60-month duration maximise the probability of a total loss, requiring peak risk margins to cover extreme uncertainty. |
+
+To implement this operational design in our model, we established a central sys_params matrix to map environmental constraints directly into the model: 
+# ======
+  # Parameters retained from Online Encyclopedia:
+  #   route_risk     : Helionis=3, Bayesia=2, Oryn=4
+  #   debris_density : consistent with route_risk ordering
+  #   solar_radiation: Helionis=0.50; Bayesia=0.70; Oryn=0.30
+  # ======
+  sys_params <- data.frame(
+    cq_system = cq_systems,
+    proxy_sys = unname(sys_proxy),
+    
+    # WC: gravity
+    gravity      = c(1.125, 1.300, 1.113),
+    
+    # WC: psych_stress: training-data median per proxy system
+    psych_stress = as.numeric(get_wc_param("psych_stress_med")),
+    
+    # Cargo: route_risk 
+    route_risk_n = c(3L, 2L, 4L),   
+    route_risk_c = c("3","2","4"),   
+    
+    # Cargo: debris_density and solar_radiation
+    debris_density  = c(0.60, 0.30, 0.70),
+    solar_radiation = c(0.50, 0.70, 0.30),
+    
+    # ... [Additional BI and Cargo Parameters] ...
+    stringsAsFactors = FALSE
+  )
+
+# Pricing & Commerical Strategy 
+The pricing framework is designed to capture the baseline expected 10-year present value cost while aggressively funding the liquid capital reserves required to survive extreme tail-risk volatility. 
+
+The fundamental pricing equation applied across the portfolio is:
+         **Gross Premium = Expected Loss + Cost of Capital + Expenses + Profit Margin**
+
+Because CL represents an extreme capital burden (generating a standard deviation of 38.02 Billion Ð), a uniform pricing approach would critically undercapitalise Galaxy General. Therefore, we propose a **Modular Pricing Structure:**
+1. **Core Coverage Package:**Includes BI, WC, and EF. Because these hazards exhibit stable finanical variance, they are priced with a predictable, moderate cost-of-capital margin.
+2. **Cargo Loss Coverage (Modular Addition):**Priced separately as an optional or standalone capital module due to its massive tail risk. To optimise costs, this module utilises a layered risk-retention approach
+   * Deductible: Policyholders retain an initial 34,000K Ð (5% of max cargo value) to absorb high-frequency attritional damage.
+   * Primary Retention: Galaxy General covers severity up to the 680,000K Ð maximum fleet exposure limit.
+   * Risk Transfer: Extreme total-loss events are partially transferred via CAT XL and Facultative reinsurance.
+
+**10-year Comprehensive Pricing Structure**
+Applying this framework to the fully underwritten comrpehensive portfolio (Core + Cargo) over a 10-year projection yields the following structure:
+| Pricing Component | Value (10-Year PV) | Actuarial Rationale |
+| :--- | :--- | :--- |
+| **Expected Loss** | 90.21 Billion Ð | Baseline 10-year present value cost derived from aggregate Monte Carlo simulations. |
+| **Cost of Capital (20%)** | 18.04 Billion Ð | Risk margin dedicated to funding reserves against the 197.97 Billion Ð $VaR_{0.99}$ threshold. |
+| **Capital-Adjusted Pure Premium** | 108.25 Billion Ð | The true cost of absorbing Cosmic Quarry's operational risk. |
+| **Target Gross Premium** | 166.54 Billion Ð | Factors in a 30% expense ratio (administration/reinsurance) and a 5% corporate profit margin (65% permissible loss ratio). |
+
+**Long-Term Projection Implementation**
+To simulate these commerical returns, we projected the portfolio out 10 years, accounting for compounding exposure growth, interplantary inflation and investment float yields. 
+# ======
+  # PRICING, EXPENSE, AND ECONOMIC PARAMETERS
+  # ======
+  expense_ratio <- 0.30   # 30% of premium for admin, reinsurance, commissions
+  profit_margin <- 0.05   # 5% target profit margin
+  load_factor   <- 1 / (1 - expense_ratio - profit_margin)  # Yields 1.538 (65% permissible loss ratio)
+  
+  # Economic Assumptions (5-yr trailing avg 2170–2174)
+  inf_fwd   <- 0.0423     # 4.23% Claims inflation rate
+  r1yr_fwd  <- 0.0371     # 3.71% Short-term reserve investment rate
+  r10yr_fwd <- 0.0376     # 3.76% Long-term discount rate
+
+  # ======
+  # 10-YEAR FINANCIAL PROJECTION LOOP
+  # ======
+  for (t in seq_len(N_YEARS)) {
+    
+    exp_growth_t  <- (1 + wtd_growth)^(t - 1)    # Exposure multiplier
+    inf_factor_t  <- (1 + inf_fwd)^(t - 1)       # Severity inflation multiplier
+    disc_factor_t <- 1 / (1 + r10yr_fwd)^t       # PV discount factor
+    
+    # 1. Expected total loss for year t 
+    E_S_t <- total_el_y1 * exp_growth_t * inf_factor_t
+    
+    # 2. Gross Premium (priced at start of year based on expected loss and load factor)
+    P_t   <- E_S_t * load_factor
+    
+    # 3. Expenses (Deterministic % of premium)
+    Exp_t <- P_t * expense_ratio
+    
+    # 4. Investment Income: 0.5 × E[loss] held as float, earned at short-term rate
+    Inv_t <- 0.5 * E_S_t * r1yr_fwd
+    
+    # --- Simulate aggregate losses (S_t) for each line ---
+    # [Simulation execution functions omitted for brevity]
+    S_t  <- sim_t_bi + sim_t_wc + sim_t_ef + sim_t_cargo
+    
+    # 5. Net Revenue Calculation (per simulation)
+    NR_t <- P_t + Inv_t - S_t - Exp_t
+    
+    # Store Present Values
+    proj_pv_cost <- proj_pv_cost + S_t  * disc_factor_t
+    proj_pv_rev  <- proj_pv_rev  + NR_t * disc_factor_t
+  }
 # Aggregate Loss Modelling
 
 # Risk Assessment
