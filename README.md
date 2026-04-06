@@ -86,23 +86,22 @@ To implement this operational design in our model, we established a central sys_
 # solar_radiation: Helionis=0.50; Bayesia=0.70; Oryn=0.30
 
 sys_params <- data.frame( cq_system = cq_systems, proxy_sys = unname(sys_proxy),
-```
-    # WC: gravity
-    gravity      = c(1.125, 1.300, 1.113),
+# WC: gravity
+gravity      = c(1.125, 1.300, 1.113),
     
-    # WC: psych_stress: training-data median per proxy system
-    psych_stress = as.numeric(get_wc_param("psych_stress_med")),
+ # WC: psych_stress: training-data median per proxy system
+ psych_stress = as.numeric(get_wc_param("psych_stress_med")),
     
-    # Cargo: route_risk 
-    route_risk_n = c(3L, 2L, 4L),   
-    route_risk_c = c("3","2","4"),   
+# Cargo: route_risk 
+route_risk_n = c(3L, 2L, 4L),   
+route_risk_c = c("3","2","4"),   
     
-    # Cargo: debris_density and solar_radiation
-    debris_density  = c(0.60, 0.30, 0.70),
-    solar_radiation = c(0.50, 0.70, 0.30),
+ # Cargo: debris_density and solar_radiation
+debris_density  = c(0.60, 0.30, 0.70),
+solar_radiation = c(0.50, 0.70, 0.30),
     
-    # ... [Additional BI and Cargo Parameters] ...
-    stringsAsFactors = FALSE
+# ... [Additional BI and Cargo Parameters] ...
+ stringsAsFactors = FALSE
   )
 
 # Pricing & Commerical Strategy 
