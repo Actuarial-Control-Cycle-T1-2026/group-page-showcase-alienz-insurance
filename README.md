@@ -163,7 +163,7 @@ Applying this framework to the fully underwritten comrpehensive portfolio (Core 
 
 **Long-Term Projection Implementation**
 To simulate these commerical returns, we projected the portfolio out 10 years, accounting for compounding exposure growth, interplantary inflation and investment float yields. 
-# ======
+```r
   # PRICING, EXPENSE, AND ECONOMIC PARAMETERS
   # ======
   expense_ratio <- 0.30   # 30% of premium for admin, reinsurance, commissions
@@ -207,6 +207,7 @@ To simulate these commerical returns, we projected the portfolio out 10 years, a
     proj_pv_cost <- proj_pv_cost + S_t  * disc_factor_t
     proj_pv_rev  <- proj_pv_rev  + NR_t * disc_factor_t
   }
+```
 # Aggregate Loss Modelling
 
 # Risk Assessment
