@@ -1,5 +1,4 @@
-extr### Alienz Insurance
-## 2026 SOA Case Study: Actuaries in Space - The Final Frontier
+## 2026 SOA Case Study: Alienz Insurance
 By: Amelia Chung, Asrith Devarapalli, Ho Yin Lam, Daniel Song, Nathan Tan
 
 # Objective Overview
@@ -71,6 +70,7 @@ To effectively managage the vastly different risk profiles across Cosmic Quarry'
 - **Tier 2 (Catastrophic Risk Layer)**: Covers Business Interruption (BI) and Cargo Loss (CL). This layer focuses on systemic, correlated and totl-loss threats in the Bayesia System and Oryn Delta, where extreme isolation demands unique parametric and agreed-value structures.
 
 Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive operational variables, allowing the rating engine to automatically adjust to the relaties of each system. 
+
 | Product | Primary Rating Variables | System Weighting & Actuarial Justification |
 | :--- | :--- | :--- |
 | **Workers' Compensation (WC)** | `gravity_level`, `safety_training_index` | **Highest in Helionis (Frequency):** High gravity environments directly inflate the frequency and severity of musculoskeletal claims, demanding heavy premium loading. |
@@ -154,6 +154,7 @@ Because CL represents an extreme capital burden (generating a standard deviation
 
 **10-year Comprehensive Pricing Structure**
 Applying this framework to the fully underwritten comrpehensive portfolio (Core + Cargo) over a 10-year projection yields the following structure:
+
 | Pricing Component | Value (10-Year PV) | Actuarial Rationale |
 | :--- | :--- | :--- |
 | **Expected Loss** | 90.21 Billion Ð | Baseline 10-year present value cost derived from aggregate Monte Carlo simulations. |
