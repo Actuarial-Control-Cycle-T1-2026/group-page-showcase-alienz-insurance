@@ -209,6 +209,65 @@ To simulate these commerical returns, we projected the portfolio out 10 years, a
   }
 ```
 # Aggregate Loss Modelling
+To estimate annual losses across our four hazard coverages, we built an actuarial collective risk model combining claim frequency and severity modelling. By examining the dispersion level and overall distribution of the data, we ended up choosing these models and performed feature selection on them:
+| Coverage | Frequency Model | Severity Model |
+| --- | --- | --- |
+| Business Interruption (BI) | Poisson Regression | Log-Normal Distribution |
+| Cargo Loss (CL) | Negative Binomial Regression | Gamma GLM |
+| Equipment Failure (EF) | Poisson Regression | Gamma GLM |
+| Workers' Compensation (WC) | Poisson Regression | Log-Normal Distribution |
+
+For the aggregate model, we simulated 10,000 Monte Carlo trials per hazard area to estimate the full probability distribution of annual losses.
+```r
+simulate_aggregate <- function(mu_pool, lambda, N_SIM,
+                                 freq_dist = "poisson", theta = NULL,
+                                 prob_w    = NULL,
+                                 sev_dist  = "lnorm",
+                                 sigma     = NULL,
+                                 phi       = NULL,
+                                 scale     = 1) {
+    if (freq_dist == "negbin" && is.null(theta))
+      stop("theta is required for negbin simulation")
+    if (sev_dist == "lnorm"  && is.null(sigma))
+      stop("sigma (sdlog) is required for lognormal simulation")
+    if (sev_dist == "gamma"  && (is.null(phi) || phi <= 0))
+      stop("phi > 0 is required for gamma simulation")
+    
+    pool_n   <- length(mu_pool)
+    out      <- numeric(N_SIM)
+    marginal <- (pool_n == 1L)
+    
+    for (iter in seq_len(N_SIM)) {
+      n <- if (freq_dist == "poisson")
+        rpois(1L, lambda)
+      else
+        rnbinom(1L, mu = lambda, size = theta)
+      
+      if (n == 0L) { out[iter] <- 0.0; next }
+      
+      if (sev_dist == "lnorm") {
+        ml <- if (marginal) mu_pool[1L] else
+          mu_pool[sample.int(pool_n, n, replace = TRUE, prob = prob_w)]
+        x  <- rlnorm(n, meanlog = ml, sdlog = sigma)
+      } else {
+        mu_i <- if (marginal) mu_pool[1L] else
+          mu_pool[sample.int(pool_n, n, replace = TRUE, prob = prob_w)]
+        x    <- rgamma(n, shape = 1.0 / phi, scale = phi * mu_i)
+      }
+      
+      out[iter] <- sum(x) * scale
+    }
+    out
+  }
+```
+This gave the key portfolio-level results:
+- **Short-term expected aggregate cost:** 8.26 Billion Ð
+- **Mean net revenue:** 0.80 Billion Ð
+- **Probability of Year 1 underwriting loss:** 30.2%
+- **10-year present value cost:** 90.21 Billion Ð
+- **10-year mean net revenue:** 7.47 Billion Ð
+- **Portfolio standard deviation:** 38.0 Billion Ð
+- **1-in-100 year tail loss (P01):** −100.29 Billion Ð
 
 # Risk Assessment
 
