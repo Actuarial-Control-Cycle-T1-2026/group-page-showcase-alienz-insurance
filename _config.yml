@@ -1,1 +1,7 @@
-theme: jekyll-theme-cayman
+theme: jekyll-theme-slate
+title: "2026 SOA Case Study: Alienz Insurance"
+description: "Pricing strategy and aggregate loss modelling for interstellar risk"
+show_downloads: false
+markdown: kramdown
+kramdown:
+  input: GFM

@@ -1,5 +1,4 @@
-extr### Alienz Insurance
-## 2026 SOA Case Study: Actuaries in Space - The Final Frontier
+## 2026 SOA Case Study: Alienz Insurance
 By: Amelia Chung, Asrith Devarapalli, Ho Yin Lam, Daniel Song, Nathan Tan
 
 # Objective Overview
@@ -71,6 +70,7 @@ To effectively managage the vastly different risk profiles across Cosmic Quarry'
 - **Tier 2 (Catastrophic Risk Layer)**: Covers Business Interruption (BI) and Cargo Loss (CL). This layer focuses on systemic, correlated and totl-loss threats in the Bayesia System and Oryn Delta, where extreme isolation demands unique parametric and agreed-value structures.
 
 Premiums are driven by Generalised Linear Models (GLMs) that isolate predictive operational variables, allowing the rating engine to automatically adjust to the relaties of each system. 
+
 | Product | Primary Rating Variables | System Weighting & Actuarial Justification |
 | :--- | :--- | :--- |
 | **Workers' Compensation (WC)** | `gravity_level`, `safety_training_index` | **Highest in Helionis (Frequency):** High gravity environments directly inflate the frequency and severity of musculoskeletal claims, demanding heavy premium loading. |
@@ -154,6 +154,7 @@ Because CL represents an extreme capital burden (generating a standard deviation
 
 **10-year Comprehensive Pricing Structure**
 Applying this framework to the fully underwritten comrpehensive portfolio (Core + Cargo) over a 10-year projection yields the following structure:
+
 | Pricing Component | Value (10-Year PV) | Actuarial Rationale |
 | :--- | :--- | :--- |
 | **Expected Loss** | 90.21 Billion Ð | Baseline 10-year present value cost derived from aggregate Monte Carlo simulations. |
@@ -209,17 +210,31 @@ To simulate these commerical returns, we projected the portfolio out 10 years, a
   }
 ```
 # Aggregate Loss Modelling
-To estimate annual losses across our four hazard coverages, we built an actuarial collective risk model combining claim frequency and severity modelling. By examining the dispersion level and overall distribution of the data, we ended up choosing these models and performed feature selection on them:
-| Coverage | Frequency Model | Severity Model |
-| --- | --- | --- |
-| Business Interruption (BI) | Poisson Regression | Log-Normal Distribution |
-| Cargo Loss (CL) | Negative Binomial Regression | Gamma GLM |
-| Equipment Failure (EF) | Poisson Regression | Gamma GLM |
-| Workers' Compensation (WC) | Poisson Regression | Log-Normal Distribution |
+Aggregate annual losses for the four hazard areas (Business Interruption, Cargo Loss, Equipment Failure, and Workers' Compensation) were estimated using an actuarial collective risk model. Generalised linear models with exposure offsets were used to model claim frequency, allowing expected claim counts to scale appropriately with operational exposure. While Poisson regression models were used for BI, EF and WC claims, a negative binomial regression model was used for CL claims to account for overdispersion in shipment incident frequency.
+For claim severity, a combination of parametric and regression methods was used. Log-normal distribution was used for BI and WC severities. This reflects the multiplicative nature of operational disruption costs and injury-related expenses. Gamma GLM was used for Equipment Failure and Cargo severities, allowing claim size to adjust with operational characteristics such as usage intensity, cargo weight, environmental conditions, etc.
+## Modelling Procedure
 
-For the aggregate model, we simulated 10,000 Monte Carlo trials per hazard area to estimate the full probability distribution of annual losses.
+In order to model the aggregate loss, we developed an aggregate loss model using a Monte Carlo simulation framework. By modelling and bridging the frequency and severity of claims for each hazard coverage area and running Monte Carlo simulations 10,000 times for each hazard coverage, we acquire a good estimate of the probability distribution of total annual losses. The core of the loss simulation lies in the custom simulation function that we produced shown below.
 ```r
-simulate_aggregate <- function(mu_pool, lambda, N_SIM,
+  # simulate_aggregate(): Collective risk model: S = sum_{i=1..N} X_i
+  #
+  # mu_pool   : severity mean parameter pool
+  #               lnorm --> meanlog (length 1, no covariates for BI/WC)
+  #               gamma --> E[X] from predict(glm, type="response") per row
+  # lambda    : expected annual claim count (rate × exposure volume)
+  # freq_dist : "poisson", "negbin"
+  # theta     : NegBin size parameter (required for negbin)
+  # prob_w    : sampling weights for mu_pool (NULL = uniform)
+  #             EF uses claim-count weights per equipment type
+  # sev_dist  : "lnorm", "gamma"
+  # sigma     : sdlog (required for lnorm)
+  # phi       : Gamma dispersion = summary(model)$dispersion (required for gamma)
+  #             Parameterisation: X ~ Gamma(shape=1/phi, scale=phi*mu_i)
+  #             so E[X_i]=mu_i and Var[X_i]=phi*mu_i^2
+  # scale     : 1e6 for BI (fitted on $millions), 1000 for WC (fitted on $thousands),
+  #             1 for EF and Cargo (fitted on raw $)
+  
+  simulate_aggregate <- function(mu_pool, lambda, N_SIM,
                                  freq_dist = "poisson", theta = NULL,
                                  prob_w    = NULL,
                                  sev_dist  = "lnorm",
@@ -259,19 +274,246 @@ simulate_aggregate <- function(mu_pool, lambda, N_SIM,
     }
     out
   }
+
 ```
-This gave the key portfolio-level results:
-- **Short-term expected aggregate cost:** 8.26 Billion Ð
-- **Mean net revenue:** 0.80 Billion Ð
-- **Probability of Year 1 underwriting loss:** 30.2%
-- **10-year present value cost:** 90.21 Billion Ð
-- **10-year mean net revenue:** 7.47 Billion Ð
-- **Portfolio standard deviation:** 38.0 Billion Ð
-- **1-in-100 year tail loss (P01):** −100.29 Billion Ð
+The following code was used to model the frequency of losses in regards to each coverage area, through Poisson GLMs.
+```r
+  set.seed(5100)
+  train_control <- trainControl(method = "cv", number = 10)
+  
+  ## Business Interruptions
+  bi_clean <- na.omit(bi)
+  bi_vars      <- setdiff(names(bi_clean), c("policy_id", "station_id", "claim_count", "X", "exposure"))
+  joined_names <- paste(bi_vars, collapse = " + ")
+  formula      <- as.formula(paste("claim_count", "~", joined_names, "+ offset(log(exposure))"))
+  bi_poisson   <- train(formula,
+                        data       = bi_clean,
+                        method     = "glm",
+                        family     = poisson,
+                        trControl  = train_control)
+  summary(bi_poisson) # only avg_crew_exp insignificant
+  
+  ## Cargo
+  cargo_clean <- na.omit(cargo)
+  cargo_vars   <- setdiff(names(cargo), c("policy_id", "shipment_id", "claim_count", "X", "exposure", "cargo_value"))
+  joined_names <- paste(cargo_vars, collapse = " + ")
+  formula      <- as.formula(paste("claim_count", "~", joined_names, "+ offset(log(exposure))"))
+  cargo_nb     <- train(formula,
+                        data      = cargo_clean,
+                        method    = "glm.nb",
+                        trControl = train_control,
+                        tuneGrid  = expand.grid(link = "log"))
+  summary(cargo_nb)
+  
+  ## Equipment Failure
+  ef_clean <- clean_data(ef)
+  ef_vars      <- setdiff(names(ef), c("policy_id", "equipment_id", "claim_count", "X", "exposure"))
+  joined_names <- paste(ef_vars, collapse = " + ")
+  formula      <- as.formula(paste("claim_count", "~", joined_names, "+ offset(log(exposure))"))
+  ef_poisson   <- train(formula,
+                        data       = ef_clean,
+                        method     = "glm",
+                        family     = poisson,
+                        preProcess = c("medianImpute"),
+                        na.action  = na.pass,
+                        trControl  = train_control)
+  summary(ef_poisson) # all significant
+  
+  ## Workers' Compensation
+  wc_clean <- na.omit(wc)
+  wc_vars      <- setdiff(names(wc), c("policy_id", "worker_id", "claim_count", "X", "exposure", "station_id"))
+  joined_names <- paste(wc_vars, collapse = " + ")
+  formula      <- as.formula(paste("claim_count", "~", joined_names, "+ offset(log(exposure))"))
+  wc_poisson   <- train(formula,
+                        data      = wc_clean,
+                        method    = "glm",
+                        family    = poisson,
+                        trControl = train_control)
+  summary(wc_poisson) # all significant except hours_per_week
+  
+```
+The following code was used to model the severity of losses in regards to each coverage area, using various methods, including parametric modelling and Gamma GLMs.
+```r
+  ### Business Interruption: marginal lognormal (fitted on $millions)
+  fit_bi_ln <- fitdist(bi_sev$claim_m, "lnorm")
+  summary(fit_bi_ln)
+  
+  ### Cargo Loss: Gamma GLM
+  cols_for_model  <- c("claim_amount", "cargo_type", "cargo_value", "weight",
+                       "route_risk", "distance", "transit_duration", "vessel_age",
+                       "debris_density", "pilot_experience", "container_type", "solar_radiation")
+  cargo_sev_complete <- na.omit(cargo_sev[, cols_for_model])
+  cargo_glm_full     <- glm(claim_amount ~ ., data = cargo_sev_complete, family = Gamma(link = "log"))
+  print(summary(cargo_glm_full))
+  
+  cargo_glm <- step(cargo_glm_full, direction = "backward", trace = 0)
+  print(summary(cargo_glm))
+  # Significant covariates: cargo_type + cargo_value + weight + route_risk + debris_density + solar_radiation
+  
+  ### Equipment Failure: Gamma GLM
+  # Note: equipment_age intentionally excluded to prevent massive row deletion
+  cols_for_ef    <- c("claim_amount", "equipment_type", "solar_system", "maintenance_int", "usage_int")
+  ef_sev_complete <- na.omit(ef_sev[, cols_for_ef])
+  ef_glm_full     <- glm(claim_amount ~ ., data = ef_sev_complete, family = Gamma(link = "log"))
+  
+  ef_glm <- step(ef_glm_full, direction = "backward")
+  print(summary(ef_glm))
+  # Significant covariates: equipment_type + solar_system + usage_int
+  
+  ### Workers' Compensation: marginal lognormal (fitted on $thousands)
+  fit_wc_ln <- fitdist(wc_sev$claim_amt_scaled, "lnorm")
+
+```
+The modelled hazard profile for each coverage area is as follows:
+
+| Hazard Coverage Profiles   | CoverageDistribution Shape    | Mean           | P99      | Key Frequency Drivers                                             |
+| :------------------------- | :---------------------------- | :------------- | :------- | :---------------------------------------------------------------- |
+| Business Interruption (BI) | Moderately right-skewed       | 4.32M Ð        | 10.87M Ð | energy\_backup\_score, maintenance\_freq                          |
+| Cargo Loss (CL)            | Highly heavy-tailed           | Median 6.51B Ð | 30.82B Ð | route\_risk, debris\_density, solar\_radiation, pilot\_experience |
+| Equipment Failure (EF)     | Light-tailed (normal-leaning) | 60.68M Ð       | 66.70M Ð | Equipment type (ReglAggregators), Helionis Cluster location       |
+| Workers' Compensation (WC) | Light-tailed                  | 2.62M Ð        | 3.44M Ð  | Occupation type, accident history                                 |
+
+## Stress Testing
+
+To stress test an extreme 1-in-100-year scenario and assess severe tail risks quantitatively, we developed a deterministic extreme scenario: the Carrington-class coronal mass ejection. Rather than assuming hazard areas operate independently, this scenario tests the portfolio's resilience when multiple solar systems and coverage lines fail simultaneously—a compounding, system-wide shock.
+
+### The Scenario Profile
+
+A massive, unpredictable solar flare erupts, sending a wave of electromagnetic and particle radiation across all mining territories.
+
+| Solar System | Impact |
+| :--- | :--- |
+| **Bayesia System** | Already vulnerable to sharp, temporary spikes of electromagnetic radiation - the system suffers catastrophic grid overloads. |
+| **Oryn Delta** | The dwarf star's sporadic, unpredictable flares neutralise the newly deployed amplified beacons and mobile relay drones, causing a system-wide communication blackout. |
+| **Helionis Cluster** | While physically shielded from the worst of the radiation, the system suffers severe supply-chain bottlenecks as all transit routes are grounded. |
+
+---
+
+### Modelling the Financial Shock
+
+Baseline model parameters were shocked to simulate this 1-in-100-year event across 10,000 Monte Carlo simulation trials.
+
+| Shock Type | Mechanism | Effect |
+| :--- | :--- | :--- |
+| **Frequency Multipliers** *(The Domino Effect)* | Aggressive hazard loadings applied to expected claim counts. | The electromagnetic surge causes immediate, widespread Equipment Failures (EF), which in turn trigger an unprecedented volume of Business Interruption (BI) claims as mining extraction halts across Bayesia and Oryn Delta. |
+| **Severity Multipliers** *(The Response Delay)* | Expected severity of claims shocked across all coverages. | Communication networks are jammed, severely delaying emergency response and repair crews - a minor Workers' Compensation injury or routine cargo route delay rapidly escalates into a maximum-limit total loss due to the inability to deploy medical or mechanical support. |
+
+These stress tests were done using the following code:
+```r
+  # 1. Define the Shock Multipliers based on qualitative risk assessment
+  # Helionis is shielded but suffers supply chain shocks. Bayesia/Oryn get hit directly.
+  freq_shocks <- c("Helionis Cluster" = 1.25, "Bayesia System" = 3.50, "Oryn Delta" = 3.00)
+  sev_shocks  <- c("Helionis Cluster" = 1.15, "Bayesia System" = 2.50, "Oryn Delta" = 2.00)
+  
+  # Initialize lists to hold the stressed simulation results
+  bi_sim_stress <- list()
+  wc_sim_stress <- list()
+  ef_sim_stress <- list()
+  cargo_sim_stress <- list()
+  
+  for (sys in cq_systems) {
+    # Extract specific system shocks
+    f_shock <- freq_shocks[sys]
+    s_shock <- sev_shocks[sys]
+    
+    # --- BI STRESS ---
+    # Lognormal adjustment: add log(severity_shock) to meanlog
+    bi_sim_stress[[sys]] <- simulate_aggregate(
+      mu_pool = bi_meanlog + log(s_shock), 
+      lambda = bi_lambda[sys] * f_shock, 
+      N_SIM = N_SIM, freq_dist = "poisson", sev_dist = "lnorm", sigma = bi_sdlog, scale = 1e6
+    )
+    
+    # --- WC STRESS ---
+    wc_sim_stress[[sys]] <- simulate_aggregate(
+      mu_pool = wc_meanlog + log(s_shock), 
+      lambda = wc_lambda[sys] * f_shock, 
+      N_SIM = N_SIM, freq_dist = "poisson", sev_dist = "lnorm", sigma = wc_sdlog, scale = 1000
+    )
+    
+    # --- EF STRESS ---
+    # Gamma adjustment: multiply mu_pool by severity_shock
+    rows <- ef_inventory[ef_inventory$cq_system == sys, ]
+    lam_sys_stressed <- sum(rows$row_exp_n) * f_shock
+    prob_w <- rows$row_exp_n / sum(rows$row_exp_n) # Weights remain proportional
+    
+    ef_sim_stress[[sys]] <- simulate_aggregate(
+      mu_pool = rows$mu_sev * s_shock, 
+      lambda = lam_sys_stressed, 
+      N_SIM = N_SIM, freq_dist = "poisson", prob_w = prob_w, sev_dist = "gamma", phi = phi_ef
+    )
+    
+    # --- CARGO STRESS ---
+    cargo_sim_stress[[sys]] <- simulate_aggregate(
+      mu_pool = cargo_mu_pool[[sys]] * s_shock, 
+      lambda = cargo_lambda[sys] * f_shock, 
+      N_SIM = N_SIM, freq_dist = "negbin", theta = cargo_theta, sev_dist = "gamma", phi = phi_cargo
+    )
+  }
+  
+  # 2. Aggregate the Stressed Enterprise Loss
+  enterprise_stress <- Reduce("+", bi_sim_stress) + Reduce("+", wc_sim_stress) + 
+    Reduce("+", ef_sim_stress) + Reduce("+", cargo_sim_stress)
+  
+  # 3. Compare Baseline vs Stressed
+  baseline_mean <- mean(full_portfolio)
+  baseline_p99  <- quantile(full_portfolio, 0.99)
+  
+  stress_mean <- mean(enterprise_stress)
+  stress_p99  <- quantile(enterprise_stress, 0.99)
+  
+  cat(sprintf("Baseline Expected Loss: %s\n", formatC(baseline_mean, format="f", big.mark=",", digits=0)))
+  cat(sprintf("Baseline 1-in-100 (P99): %s\n", formatC(baseline_p99, format="f", big.mark=",", digits=0)))
+  cat("--------------------------------------------------\n")
+  cat(sprintf("STRESSED Expected Loss: %s\n", formatC(stress_mean, format="f", big.mark=",", digits=0)))
+  cat(sprintf("STRESSED 1-in-100 (P99): %s\n", formatC(stress_p99, format="f", big.mark=",", digits=0)))
+  
+```
+Running the shocked parameters through 10,000 simulation trials produced a massive tail shift in the aggregate loss distribution. The stressed P99 extends drastically beyond baseline expectations, indicating that Galaxy General Insurance Company cannot rely on standard operational cash flow to cover this delta.
+<p align="center">
+  <img src="Stress_test.png" alt="Stressed vs baseline" width="400">
+  <br>
+  <em>Figure 1: Comparison of aggregate loss distribution between baseline and extreme stressed-scenario</em>
+</p>
 
 # Risk Assessment
 
-Use these below in order to link and display different formats:
-[data](player_data_salaries_2020.csv), [code](sample-data-clean.ipynb), and [images](ACC.png) [link](www.google.com)
+This section evaluates the portfolio's threat landscape through a comprehensive Enterprise Risk Management framework. It categorizes risks by individual solar system profiles, models systemic correlated threats, and outlines financial stress testing alongside ESG integration.
 
-This file is written using Markdown.
+
+|                             | **Helionis Cluster**                                                                                                                                                                                            | **Bayesia System**                                                                                                                                                                           | **Oryn Delta**                                                                                                                                                                                                                                             |
+| :-------------------------: | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------: |
+| **Profile**                 | High-Traffic Frequency Hub                                                                                                                                                                                      | Radiative Tail Risk                                                                                                                                                                          | Severity Frontier                                                                                                                                                                                                                                          |
+| **Proxy**                   | \-                                                                                                                                                                                                              | Epsilon                                                                                                                                                                                      | Zeta                                                                                                                                                                                                                                                       |
+| **Operational & Financial** | Two asteroid clusters create localised debris\_density (1.13g gravity), driving high-frequency attritional EF and WC claims. Pilot\_experience and vessel\_age are primary actuarial predictors for CL severity | solar\_radiation index acts as a catastrophic system-wide trigger - causing instantaneous "electronic degradation". EF claims leap from \~15K baseline to 700K+ during high-radiation events | Distances up to 240 AU and 60-month transit durations introduce severe economic risk. 2.5% interplanetary inflation compounds claim costs by 13.1% per transit. Severe collisions maximise the \~680,000K insured limit with virtually zero salvage margin |
+| **Strategic**               | Severe concentration risk - up to 85% of BI losses cluster around just two high-density transit routes                                                                                                          | Correlated radiation events impact multiple station\_id locations simultaneously, neutralising geographic diversification benefits                                                           | Rapid expansion outpaces safety governance - safety\_training\_index of only 2.8/5, dramatically elevating WC risks                                                                                                                                        |
+
+
+---
+
+**Correlated Scenarios & Financial Stress Testing**
+While risks are assessed locally, systemic drivers can cause multi-system contagion:
+* **Worst-Case Correlated Shocks:** Events like an Interstellar Solar Storm or an Interplanetary Supply Chain Collapse (due to an asteroid fragmentation surge in Helionis) can simultaneously trigger Equipment Failure (EF), Business Interruption (BI), and Cargo Loss (CL) across all territories.
+* **Scenario Testing Outcomes:** Attritional and moderate events remain within capital tolerance thresholds. However, worst-case correlated scenarios produce a 1-in-100-year tail amplification that materializes significant capital strain, requiring reinsurance attachments to prevent a solvency breach.
+
+---
+
+**Top Enterprise Threats & Mitigation Strategy**
+Based on the threat matrix, the top three critical risks require tailored reinsurance interventions:
+1.  **Interstellar Solar Storm (Extreme Tail Risk):** A rare, portfolio-wide contagion event demanding CAT XL reinsurance and parametric BI triggers.
+2.  **Deep Space Total Cargo Loss (Catastrophic Severity):** A low-frequency but maximum-limit event in Oryn Delta requiring bespoke Facultative Reinsurance and dynamic inflation adjustments. 
+3.  **Asteroid Fragmentation Surge (Operational Contagion):** An attritional event in Helionis requiring quota share proportional reinsurance to maintain cash flow.
+
+---
+
+**ESG Integration**
+To ensure long-term sustainability, rigorous ESG incentives are embedded into the pricing algorithm. The portfolio applies dynamic experience rating credits to operations that actively avoid high-debris zones, maintain top-tier safety training scores, and enforce proactive maintenance schedules.
+
+# Conclusion
+The "Integrated Interstellar Portfolio" developed for Galaxy General presents a robust, data-driven pricing and risk management framework tailored to the unique operational realities of Cosmic Quarry. By leveraging advanced proxy calibration and Generalised Linear Models, we successfully quantified the disparate risk profiles across the Helionis Cluster, Bayesia System, and Oryn Delta, bridging the gap between historical proxy data and future frontier operations.
+
+Recognising the severe tail risk introduced by deep-space logistics—specifically the massive capital burden of Cargo Loss in Oryn Delta and the correlated contagion of solar storms in Bayesia—our modular pricing structure isolates volatility. It ensures immediate liquidity for attritional claims while aggressively funding capital reserves for 1-in-100-year catastrophic events.
+
+Furthermore, the integration of a comprehensive Enterprise Risk Management (ERM) framework, supported by targeted reinsurance strategies and dynamic ESG premium credits, protects the portfolio against insolvency. Ultimately, this actuarial approach not only accurately prices the extreme uncertainties of interstellar mining but transforms them into a sustainable, profitable commercial venture for Galaxy General Insurance Company.
+
+The information presented on this page is a summary to the complete case study report. The detailed original report can be accessed [here](Alienz-Insurance-Report.pdf)
